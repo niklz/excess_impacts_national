@@ -28,5 +28,6 @@ ae_impacts <- local({
     mutate(
       excess_mort = dta_gt4 / mort_nnh,
       excess_beds = (dta_gt4 * los_eff$estimate[1]) / hours_per_period
-    )
+    ) %>%
+      mutate(across(c(excess_mort, excess_beds), \(x) x/tot_ae_adm, .names = "{.col}_per_adm"))
 })

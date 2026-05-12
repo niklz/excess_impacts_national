@@ -13,7 +13,7 @@ url_stem <- glue::glue("https://www.england.nhs.uk/statistics/statistical-work-a
 
 urls_csv <- map(url_stem, \(url) str_subset(html_attr(html_nodes(read_html(url), "a"), "href"), "csv")) %>%
   reduce(c)
-
+  
 ae_data <- map(urls_csv, \(x, y){
   read_csv(x) %>%
     mutate(url = x,
@@ -21,24 +21,36 @@ ae_data <- map(urls_csv, \(x, y){
     )
 }) %>%
   bind_rows()
-
+  
+ icb_lkup <- tibble(org_code = ae_data_sum$org_code %>% unique()) %>%
+  mutate(icb_code = map_chr(org_code, \(x) ods_info(x) %>% ods_icb_extract() %>% coalesce("")))
+  
+  
  ae_data %>%
-  mutate(tot_ae_adm = `Emergency admissions via A&E - Type 1` +	`Emergency admissions via A&E - Type 2` +	`Emergency admissions via A&E - Other A&E department`) %>%
+  mutate(tot_ae_adm = `Emergency admissions via A&E - Type 1` +	`Emergency admissions via A&E - Type 2` +	`Emergency admissions via A&E - Other A&E department` + `Other emergency admissions`) %>%
   select(
     period = Period, 
     parent_org = `Parent Org`,
     org = `Org name`,
+    org_code = `Org Code`,
     tot_ae_adm,
     dta_4_12 = `Patients who have waited 4-12 hs from DTA to admission`,
     dta_gt12 = `Patients who have waited 12+ hrs from DTA to admission`
   ) %>%
+   # pmax to adress DQ where we have dta > 0 but no admissions
+  mutate(tot_ae_adm = pmax(tot_ae_adm, dta_4_12+dta_gt12)) %>%
   mutate(
     period = str_to_lower(period),
     across(matches("org", ignore.case = TRUE), str_to_upper),
     period = my(str_remove_all(period, regex("MSitAE-", ignore_case = TRUE))) 
   ) %>%
-  arrange(period) 
+  arrange(period) %>%
+   left_join(icb_lkup, by = join_by(org_code == org_code))
 })
 
+
+
+
+ 
 
 

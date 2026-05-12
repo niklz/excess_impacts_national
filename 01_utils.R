@@ -73,3 +73,22 @@ health_org_lookup <- function(health_org_code) {
   
   return(lkp)
 }
+
+
+ods_icb_extract <- function(ods_data) {
+
+  rels <- ods_data$Organisation$Rels$Rel
+  
+  # Filter for Active relationships that match ICB link types
+  # Trusts use RE5 (Geography), GPs use RE4 (Commissioning)
+  icb_row <- rels[rels$Status == "Active" & rels$id %in% c("RE4", "RE5"), ]
+  
+  # If there are multiple, the one with Target.PrimaryRoleId.id == "RO261" 
+  # is almost certainly the ICB
+  icb_code <- icb_row$Target$OrgId$extension[icb_row$Target$PrimaryRole$id == "RO261"]
+  
+  return(icb_code[1]) # Return the first match
+}
+
+
+

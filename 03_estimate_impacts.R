@@ -18,8 +18,7 @@ ae_impacts <- local({
       hours_per_period = lubridate::interval(
         period,
         lubridate::rollforward(period)
-      ) /
-        dhours(1)
+      ) / dhours(1)
     )
 
   ae_data_sum %>%

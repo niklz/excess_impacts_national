@@ -326,6 +326,9 @@ patchwork::wrap_plots(ncol = 1)
 library(patchwork)
 library(sf)
 library(rmapshaper)
+library(ggrepel)
+library(ggiraph)
+
 
 icb_clusters <- read_csv("data/icb_cluster.csv") 
 
@@ -391,14 +394,14 @@ icb_shp %>%
   summarise(across(c(excess_mort, tot_ae_adm), sum)) %>%
   ms_simplify(keep = 0.0005, keep_shapes = TRUE) %>%
   ggplot(aes(fill = excess_mort / tot_ae_adm)) +
-  geom_sf() +
+  geom_sf(col = "white", size = 0.7) +
 scale_fill_stepsn(
     breaks = breaks,
     colors = names(breaks),
     labels = rate_labeller,
     limits = range(breaks),
     guide = guide_colorsteps(
-      even.steps = TRUE, # Keeps the physical width of bins proportional to the values
+      even.steps = FALSE, # Keeps the physical width of bins proportional to the values
       show.limits = FALSE,
       title.position = "top",
       barheight = unit(0.05, 'npc'),
@@ -431,27 +434,264 @@ region_shp <- icb_shp %>%
   summarise() 
 
 
-# %>%
-  region_plot <- region_shp %>%
-    ms_simplify(keep = 0.0001, keep_shapes = TRUE) %>%
-    ggplot(aes(fill = parent_org, col = "white")) +
-    geom_sf() +
-    theme_void() +
-    theme(legend.position = "off")
 
-# Region TS
+region_plot <- region_shp %>%
+  ms_simplify(keep = 0.05, keep_shapes = TRUE) %>% # Smoother borders
+  ggplot(aes(fill = parent_org)) +
+  geom_sf(colour = "white", size = 0.8, alpha = 0.2) + # Lower alpha for "ghost" effect
+  coord_sf(datum = NA) + # Keep aspect ratio locked
+  theme_void() +
+  paletteer::scale_fill_paletteer_d("MetBrewer::Hokusai1") +
+  theme(legend.position = "none")
 
-(ae_impacts %>%
+ts_plot <- ggplot(plot_data, aes(x = period, y = excess_mort, tooltip = scales::comma(round(excess_mort)), col = parent_org, group = parent_org)) +
+  # The "Halo" lines
+  geom_line(linewidth = 2.5, col = "white") + 
+  geom_line(linewidth = 1.2) +
+   geom_point_interactive(
+    size = 2, hover_nearest = TRUE
+  ) +
+  geom_text_repel(
+    data = label_data, 
+    aes(label = parent_org), 
+    hjust = 0, 
+    nudge_x = 10,       # Push labels further right
+    direction = "y",    # Stack them vertically to avoid overlap
+    segment.color = NA, 
+    size = 3.5,
+    fontface = "bold"
+  ) +
+  scale_x_date(expand = expansion(mult = c(0.05, 0.3))) + # More space for labels
+  scale_y_continuous(labels = scales::comma) +
+  paletteer::scale_color_paletteer_d("MetBrewer::Hokusai1") +
+  labs(
+    title = "Regional Excess Mortality Trends",
+    y = "Estimated\nexcess deaths", 
+    x = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    panel.grid.minor = element_blank(),
+    # Make the Y-axis title horizontal and bold
+    axis.title.y = element_text(angle = 0, vjust = 1, hjust = 0, face = "bold", size = 10),
+    plot.title = element_text(face = "bold", size = 14)
+  )
+
+# Final Assembly
+ptc <- ts_plot +
+  inset_element(
+    region_plot,
+    on_top = FALSE,
+    left = -0.15,    # Shifting it slightly right so it doesn't hug the Y axis
+    bottom = 0,
+    right = 0.9, 
+    top = 1,
+    align_to = 'panel'
+  );ptc
+
+
+girafe(ggobj = ptc)
+
+plot_data <- ae_impacts %>%
   filter(period > max(period)-dmonths(6), parent_org != "TOTAL") %>%
   mutate(parent_org = str_wrap(str_to_title(str_trim(str_remove_all(parent_org, "NHS ENGLAND"))), width = 15)) %>%
-  summarise(across(c(excess_mort, tot_ae_adm), sum), .by = c(period, parent_org)) %>%
-  ggplot(aes(x = period, y = excess_mort, col = parent_org)) +
-  geom_path() +
-  geom_point() +
-  # scale_y_continuous(labels = scales::percent) +
+  summarise(across(c(excess_mort, tot_ae_adm), sum), .by = c(period, parent_org))
+
+
+
+region_plot <- region_shp %>%
+  ms_simplify(keep = 0.05, keep_shapes = TRUE) %>%
+  ggplot(aes(fill = parent_org, data_id = parent_org)) + # Added data_id here
+  geom_sf_interactive(colour = "white", size = 0.8, alpha = 0.1) + # Changed to interactive
+  coord_sf(datum = NA) +
+  theme_void() +
+  paletteer::scale_fill_paletteer_d("MetBrewer::Hokusai1") +
+  theme(legend.position = "none")
+
+
+label_data <- plot_data %>% 
+  filter(period == max(period))
+
+
+
+# 1. Map: Extreme simplification + static lines
+region_plot <- region_shp %>%
+  # Dropped to 0.5% - significantly reduces SVG vertex count
+  ms_simplify(keep = 0.005, keep_shapes = TRUE) %>% 
+  ggplot(aes(fill = parent_org, data_id = parent_org)) +
+  # Use a very low alpha so it's a "ghost" until hovered
+  geom_sf_interactive(colour = "white", size = 0.5, alpha = 0.15) + 
+  coord_sf(datum = NA) +
+  theme_void() +
+  paletteer::scale_fill_paletteer_d("MetBrewer::Hokusai1") +
+  theme(legend.position = "none")
+
+# 2. Time Series: Mix static and interactive layers
+ts_plot <- ggplot(plot_data, aes(x = period, y = excess_mort, 
+                                 col = parent_org, group = parent_org,
+                                 data_id = parent_org)) +
+  # Keep the halo STATIC (standard geom_line) to save memory
+  geom_line(linewidth = 2.5, col = "white") + 
+  # Only the colored line is interactive
+  geom_line_interactive(linewidth = 1.2) +
+  geom_point_interactive(
+    aes(tooltip = scales::comma(round(excess_mort))),
+    size = 2.5, 
+    hover_nearest = TRUE
+  ) +
+  geom_text_repel_interactive(
+    data = label_data, aes(label = parent_org, data_id = parent_org), 
+    hjust = 0, nudge_x = 10, direction = "y", 
+    segment.color = NA, size = 3.5, fontface = "bold"
+  ) +
+  scale_x_date(expand = expansion(mult = c(0.05, 0.3))) + 
+  scale_y_continuous(labels = scales::comma) +
+  paletteer::scale_color_paletteer_d("MetBrewer::Hokusai1") +
+  labs(title = "Estimated monthly excess deaths, per region", x = NULL, y = NULL) +
   theme_minimal() +
-  labs(col = "") +
-  theme(legend.position = "bottom") | region_plot) +
-  plot_layout(widths = c(4, 2))
+  theme(
+    legend.position = "none",
+    axis.title = element_text(angle = 0, vjust = 1, hjust = 0, face = "bold")
+  )
+
+# 3. Interactive Assembly
+girafe(
+  ggobj = ts_plot + inset_element(region_plot, on_top = FALSE, left = -0.15, bottom = 0, right = 0.9, top = 1),
+  options = list(
+    # This CSS makes the hovered region/line fully opaque and "pops" it
+    opts_hover(css = "opacity:1.0; fill-opacity:1.0; stroke-width:3px; transition: all 0.3s ease-in-out;"),
+    # This dims everything else so the hovered region stands out
+    opts_hover_inv(css = "opacity:0.05;"), 
+    opts_toolbar(saveaspng = FALSE)
+  )
+)
 
 
+
+# 1. Create a helper to find "round" denominators
+# This takes the data range and finds multiples of 25
+data_range <- icb_impacts %>% 
+  reframe(r = range(excess_mort / tot_ae_adm, na.rm = TRUE)) %>% 
+  pull(r)
+
+
+bin_rates <- function(val, round = 25) {
+  if (is.na(val) || val == 0) return("0")
+  
+  # Calculate denominator and round to nearest 25
+  denom <- 1 / val
+  rounded_denom <- round(denom / round) * round
+  
+  return(paste0("1 in ", rounded_denom))
+}
+
+
+# 3. Labeller remains similar but handles the "1 in X" nicely
+rate_labeller <- function(x) {
+  # Small epsilon check for zero
+  ifelse(x < 1e-10, "0", paste0("1 in ", round(1 / x)))
+}
+
+# 4. The Plot
+plot_data <- icb_shp %>%
+  mutate(
+    ICB26NM = str_replace_all(
+      ICB26NM,
+      pattern = "Integrated Care Board",
+      replacement = "ICB"
+    )
+  ) %>%
+  mutate(ICB26NM = str_remove_all(ICB26NM, pattern = "NHS")) %>%
+  mutate(ICB26NM = str_to_upper(ICB26NM)) %>%
+  mutate(ICB26NM = str_trim(ICB26NM)) %>%
+  left_join(icb_impacts, by = join_by(ICB26NM == icb_name)) %>%
+  mutate(cluster = case_when(is.na(cluster) ~ ICB26NM, .default = cluster)) %>%
+  group_by(cluster) %>%
+  summarise(
+    rate = sum(excess_mort) / sum(tot_ae_adm),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    rate_bin = sapply(rate, bin_rates, round = 10),
+    # Create a numeric version of the bin for sorting purposes
+    bin_numeric = 1 / as.numeric(str_extract(rate_bin, "\\d+"))
+  ) %>%
+  ms_simplify(keep = 0.0005)
+
+# Create a color mapping for ONLY the bins present in the data
+unique_bins <- plot_data %>% 
+  arrange(bin_numeric) %>% 
+  pull(rate_bin) %>% 
+  unique()
+
+# Generate the color palette specifically for these bins
+pal <- colorRampPalette(paletteer::paletteer_d("beyonce::X41", direction = -1))(length(unique_bins))
+names(pal) <- unique_bins
+
+
+legend_data <- plot_data %>%
+  distinct(rate_bin) %>%
+  mutate(denom = as.numeric(str_extract(rate_bin, "(?<=in )\\d+"))) %>%
+  # Sort from highest denominator (lowest risk) to lowest denominator
+  arrange(desc(denom)) %>% 
+  mutate(
+    rate_bin = factor(rate_bin, levels = rate_bin),
+    # Calculate boundaries BEFORE ggplot
+    # xmin is the current denom
+    xmin = denom,
+    # xmax is the next denom in the list. 
+    # For the very last one, we subtract a fixed amount (e.g., 10)
+    xmax = lead(denom, default = denom[n()] - 10)
+  )
+
+p_legend <- ggplot(legend_data) +
+  geom_rect(aes(
+    xmin = xmin, 
+    xmax = xmax, 
+    ymin = 0, 
+    ymax = 1, 
+    fill = rate_bin
+  ), color = "white", linewidth = 0.5) +
+  geom_text(aes(
+    x = (xmin + xmax) / 2, 
+    y = -0.2, 
+    label = rate_bin
+  ), angle = 45, vjust = 1, hjust = 1, size = 3) +
+  scale_fill_manual(values = pal) +
+  scale_x_reverse() + # Keeps the green/high denoms on the left
+  theme_void() +
+  theme(legend.position = "none") +
+  coord_cartesian(clip = "off")
+
+
+ggplot(plot_data, aes(fill = rate_bin)) +
+  geom_sf(col = "white", linewidth = 0.3) +
+  scale_fill_manual(
+    values = pal,
+    # Ensure the legend follows the numeric order (e.g., 1 in 400 before 1 in 100)
+    breaks = unique_bins, 
+    guide = guide_legend(
+      title.position = "top",
+      direction = "horizontal",
+      nrow = 1,
+      keywidth = unit(2, "cm"),
+      label.position = "bottom"
+    )
+  ) +
+  theme_void() +
+  labs(
+    title = "Estimated excess deaths per ICB cluster",
+    fill = "Risk rate (excess expected deaths)"#,
+    # caption = "Rates binned to nearest 1/25 resolution"
+  ) +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(hjust = 0.5, face = "bold"),
+    # This is the magic part:
+    legend.spacing.x = unit(0, "cm"),           # Removes spacing between legend items
+    legend.key.spacing.x = unit(0, "cm"),       # For newer ggplot2 versions
+    legend.key.width = unit(1.5, "cm"),         # Makes the tiles wide enough to touch
+    legend.key.height = unit(0.4, "cm"),
+    legend.text = element_text(size = 8, margin = margin(t = 5))
+  )

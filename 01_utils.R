@@ -183,3 +183,8 @@ funnel_lines <- purrr::map_df(names(line_breaks), function(label) {
     ggplot2::theme_minimal() +
     ggplot2::theme(legend.position = "none", panel.grid.minor = ggplot2::element_blank())
 }
+
+rate_labeller <- function(x) {
+  # Small epsilon check for zero
+  ifelse(x < 1e-10, "0", paste0("1 in ", round(1 / x)))
+}

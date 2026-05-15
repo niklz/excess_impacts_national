@@ -1,5 +1,6 @@
 source("03_estimate_impacts.R")
-source("04_shapefiles.R")
+
+cluster_shp <- sf::st_read("data/cluster/cluster.shp")
 
 # Helper to bin the data into "1 in X" categories
 round_denom <- function(val, round = 25) {

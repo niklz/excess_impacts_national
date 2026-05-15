@@ -18,6 +18,8 @@ region_shp <- icb_shp %>%
   group_by(parent_org) %>%
   summarise() 
 
+write_sf(region_shp, "data/region", driver = "ESRI Shapefile", delete_dsn = TRUE)
+
 cluster_shp <- icb_shp %>%
   mutate(
     ICB26NM = str_replace_all(
@@ -34,4 +36,4 @@ cluster_shp <- icb_shp %>%
   group_by(cluster) %>%
   summarise() 
 
-
+write_sf(cluster_shp, "data/cluster", driver = "ESRI Shapefile", delete_dsn = TRUE)

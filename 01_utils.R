@@ -95,6 +95,7 @@ ods_icb_extract <- function(ods_data) {
 make_mort_funnel_plot <- function(df, 
                                  rate_breaks = c(1/400, 1/200, 1/100, 1/50), 
                                  line_breaks = c("95%" = 1.96, "99.7%" = 3, "1 in 1000" = 3.29),
+                                 over_dispertion = 3,
                                  type_label = "") {
   
   # --- 1. Background Ribbons ---
@@ -104,10 +105,6 @@ make_mort_funnel_plot <- function(df,
     ymax = breaks[-1],
     fill = colorRampPalette(c("#2ecc71", "#f1c40f", "#e74c3c"))(length(breaks)-1)
   )
-
-  rate_labeller <- function(x) {
-    ifelse(x == 0, "0", paste0("1 in ", round(1/x)))
-  }
 
   # --- 2. Clean and Filter ---
   plot_df <- df %>%
@@ -125,7 +122,6 @@ make_mort_funnel_plot <- function(df,
   mu <- sum(plot_df$excess_mort) / sum(plot_df$tot_ae_adm)
   current_rate <- plot_df$excess_mort / plot_df$tot_ae_adm
   z_scores <- (current_rate - mu) / sqrt(mu * (1 - mu) / plot_df$tot_ae_adm)
-  phi <- max(1, mean(z_scores^2, na.rm = TRUE))
 
   # --- 4. Generate Dynamic Funnel Lines ---
   x_min <- min(plot_df$tot_ae_adm)
@@ -135,7 +131,7 @@ make_mort_funnel_plot <- function(df,
   line_data_base <- data.frame(tot_ae_adm = seq(x_min, x_max, length.out = 500)) %>%
     dplyr::mutate(
       logit_mu = log(mu / (1 - mu)),
-      logit_se = sqrt(phi) * sqrt(1 / (tot_ae_adm * mu * (1 - mu)))
+      logit_se = sqrt(over_dispertion) * sqrt(1 / (tot_ae_adm * mu * (1 - mu)))
     )
 
   # Use map_df to create a "Long" format data frame of all requested lines
@@ -176,7 +172,7 @@ funnel_lines <- purrr::map_df(names(line_breaks), function(label) {
     ggplot2::coord_cartesian(ylim = c(0, y_limit)) +
     ggplot2::labs(
       title = "Risk-Adjusted Excess Mortality Funnel",
-      subtitle = paste0("Avg Rate: ", rate_labeller(mu), " | Phi (Overdispersion): ", round(phi, 2)),
+      subtitle = paste0("Avg Rate: ", rate_labeller(mu), " | Phi (Overdispersion): ", round(over_dispertion, 2)),
       x = "Total Type-1 A&E Admissions", 
       y = "Risk Rate (Expected Excess Deaths)"
     ) +
@@ -187,4 +183,20 @@ funnel_lines <- purrr::map_df(names(line_breaks), function(label) {
 rate_labeller <- function(x) {
   # Small epsilon check for zero
   ifelse(x < 1e-10, "0", paste0("1 in ", round(1 / x)))
+}
+
+per_k_labeller <- function(x) {
+  # Small epsilon check for zero
+  ifelse(x < 1e-10, "0", paste0(round(1000*x), " per mille\n", "(1 in ", round(1 / x), ")"))
+}
+
+# Helper to bin the data into "1 in X" categories
+round_denom <- function(val, round = 25) {
+  if (is.na(val) || val == 0) return("0")
+  
+  # Calculate denominator and round to nearest round
+  denom <- 1 / val
+  rounded_denom <- round(denom / round) * round
+  
+  return(rounded_denom)
 }

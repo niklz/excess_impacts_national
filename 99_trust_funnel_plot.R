@@ -1,21 +1,257 @@
 source("03_estimate_impacts.R")
 
-ae_impacts %>%
+over_dispertion <- 3
+rate_breaks <- c(1/400, 1/200, 1/100, 1/50)
+# add labels to these if you want to display labels on chart
+line_breaks <- c("95%" = 1.96, "99.7%" = 3)
+
+
+plot_data <- ae_impacts %>%
   filter(period == max(period)) %>%
-  filter(org != "Total") %>%
-  nest(.by = ae_type) %>%
   filter(ae_type == "Type 1 (Major)") %>%
-  mutate(
-    funnel_plot = map2(data, ae_type, \(x, y) {
-      make_mort_funnel_plot(
-        df = x,
-        line_breaks = c(0.75, 0.85, 0.95) %>%
-          {
-            purrr::set_names(x = qnorm(.), nm = scales::percent(.))
-          },
-        type_label = y
+  filter(org != "Total")  %>%
+    dplyr::filter(!is.na(excess_mort), !is.na(tot_ae_adm), !is.na(org)) %>%
+    dplyr::filter(tot_ae_adm > 0, excess_mort <= tot_ae_adm) %>%
+    mutate(mu = sum(excess_mort) / sum(tot_ae_adm)) %>%
+    mutate(rate = excess_mort/tot_ae_adm) %>%
+    mutate(z_score = (rate - mu)/(sqrt(mu * (1-mu)/tot_ae_adm))) %>%
+    mutate(
+      denom = sapply(rate, round_denom, round = 10),
+    rate_bin = str_c("1 in ", denom),
+    bin_numeric = 1 / as.numeric(str_extract(rate_bin, "\\d+")),
+    precise_denom = round(1 / rate),
+      tooltip = paste0(org, "\nRate: 1 in ", precise_denom)
+    )
+  
+  
+base_colors <- paletteer::paletteer_d("beyonce::X41", direction = -1)
+map_func <- scales::gradient_n_pal(base_colors)
+breaks <- sort(unique(c(-Inf, rate_breaks, Inf)))
+finite_breaks <- breaks[is.finite(breaks)]
+max_val <- max(finite_breaks)
+rescaled_breaks <- breaks / max_val
+pal <- map_func(rescaled_breaks)
+  
+ribbon_df <- data.frame(
+    ymin = breaks[-length(breaks)],
+    ymax = breaks[-1],
+    fill = pal[-1]
+  )
+
+  # Calculate Statistics
+  mu <- sum(plot_data$excess_mort) / sum(plot_data$tot_ae_adm)
+  current_rate <- plot_data$excess_mort / plot_data$tot_ae_adm
+  z_scores <- (current_rate - mu) / sqrt(mu * (1 - mu) / plot_data$tot_ae_adm)
+
+  # Generate Dynamic Funnel Lines
+  x_min <- min(plot_data$tot_ae_adm)
+  x_max <- max(plot_data$tot_ae_adm)
+  
+  # Create a sequence for the lines
+funnel_lines <- purrr::map_df(names(line_breaks), function(label) {
+    z <- line_breaks[label]
+      tibble(
+      tot_ae_adm = seq(x_min, x_max, length.out = 500),
+        logit_mu = log(mu / (1 - mu)),
+        logit_se = sqrt(over_dispertion) * sqrt(1 / (tot_ae_adm * mu * (1 - mu))),
+        upper = 1 / (1 + exp(-(logit_mu + z * logit_se))),
+        lower = 1 / (1 + exp(-(logit_mu - z * logit_se))),
+        label = label
       )
-    })
-  ) %>%
-  pull(funnel_plot) %>%
-  patchwork::wrap_plots(ncol = 1)
+})
+
+
+  y_limit <- max(max(current_rate) * 1.2, 0.02)
+  
+  # --- 5. Plot ---
+  p <- ggplot2::ggplot(plot_data, ggplot2::aes(x = tot_ae_adm, y = excess_mort / tot_ae_adm)) +
+    # Shading
+    ggplot2::geom_rect(data = ribbon_df, inherit.aes = FALSE,
+                       ggplot2::aes(xmin = -Inf, xmax = Inf, ymin = ymin, ymax = ymax, fill = fill),
+                       alpha = 0.5) +
+    ggplot2::scale_fill_identity() +
+    # Dynamic Funnel Lines / Control limits
+    ggplot2::geom_line(data = funnel_lines, ggplot2::aes(y = upper, group = label), 
+                       color = "black", linetype = 2, alpha = 0.3) +
+    # LOWER CONTROL LIMIT
+    # ggplot2::geom_line(data = funnel_lines, ggplot2::aes(y = lower, group = label), 
+    #                    color = "black", alpha = 0.3) +
+    # Control limit label
+    # ggiraph::geom_text_repel_interactive(data = funnel_lines %>% dplyr::filter(tot_ae_adm == x_max),
+    #                 ggplot2::aes(y = upper, label = label), nudge_x = 10, direction = "y") +
+    # Baseline
+    ggplot2::geom_hline(yintercept = mu , alpha = 0.3) +
+    ggplot2::annotate("label", 
+  x = x_min, # Place at the start of the x-axis
+  y = mu, 
+  label = paste0("National average: ", rate_labeller(mu)),
+  hjust = 0, 
+  vjust = -0.5, 
+  alpha = 0.8,
+  size = 4
+) +
+    # Points
+    ggiraph::geom_point_interactive(aes(tooltip = tooltip), size = 2, alpha = 0.5) +
+    # Formatting
+    ggplot2::scale_y_continuous(breaks = rate_breaks, labels = per_k_labeller) +
+    ggplot2::scale_x_continuous(labels = scales::comma) +
+    ggplot2::coord_cartesian(ylim = c(0, max(current_rate))) +
+    ggplot2::labs(
+      title = "Delay related mortality funnel plot",
+      caption = "Dashed lines represent control-limits",
+      # subtitle = paste0("Avg Rate: ", rate_labeller(mu), " | Phi (Overdispersion): ", round(over_dispertion, 2)),
+      x = "Total type-1 A&E admissions", 
+      y = "Risk rate per type-1 A&E admission (delay-related deaths)"
+    ) +
+    ggplot2::theme_minimal() +
+    ggplot2::theme(legend.position = "none", panel.grid.minor = ggplot2::element_blank());p
+
+
+girafe(
+  ggobj = p,
+  options = list(
+    # Keep the hovered item normal
+    opts_hover(css = "stroke-width:1.5px; stroke:white;"), 
+    # Fade everything else out (lower opacity)
+    opts_hover_inv(css = "opacity:0.2; transition: opacity 0.3s;"),
+    opts_tooltip(css = "background-color:white;color:black;padding:5px;border-radius:5px;font-family:sans-serif;"),
+    opts_toolbar(saveaspng = FALSE)
+  ),
+  width_svg = 9,
+  height_svg = 7
+)
+
+
+
+# VERSION 2
+
+over_dispertion <- 3
+rate_breaks <- c(1/400, 1/200, 1/100, 1/50)
+# add labels to these if you want to display labels on chart
+line_breaks <- c("95%" = 1.96, "99.7%" = 3)
+
+
+plot_data <- ae_impacts %>%
+  filter(period == max(period)) %>%
+  filter(ae_type == "Type 1 (Major)") %>%
+  filter(org != "Total")  %>%
+    dplyr::filter(!is.na(excess_mort), !is.na(tot_ae_adm), !is.na(org)) %>%
+    dplyr::filter(tot_ae_adm > 0, excess_mort <= tot_ae_adm) %>%
+    mutate(mu = sum(excess_mort) / sum(tot_ae_adm)) %>%
+    mutate(rate = excess_mort/tot_ae_adm) %>%
+    mutate(z_score = (rate - mu)/(sqrt(mu * (1-mu)/tot_ae_adm))) %>%
+    mutate(
+      denom = sapply(rate, round_denom, round = 10),
+    rate_bin = str_c("1 in ", denom),
+    bin_numeric = 1 / as.numeric(str_extract(rate_bin, "\\d+")),
+    precise_denom = round(1 / rate),
+      tooltip = paste0(org, "\nRate: 1 in ", precise_denom)
+    )
+
+ mu <- sum(plot_data$excess_mort) / sum(plot_data$tot_ae_adm)
+  current_rate <- plot_data$excess_mort / plot_data$tot_ae_adm
+  z_scores <- (current_rate - mu) / sqrt(mu * (1 - mu) / plot_data$tot_ae_adm)
+
+  # Generate Dynamic Funnel Lines
+  x_min <- min(plot_data$tot_ae_adm)
+  x_max <- max(plot_data$tot_ae_adm)
+  
+  # Create a sequence for the lines
+funnel_lines <- purrr::map_df(names(line_breaks), function(label) {
+    z <- line_breaks[label]
+      tibble(
+      tot_ae_adm = seq(x_min, x_max, length.out = 500),
+        logit_mu = log(mu / (1 - mu)),
+        logit_se = sqrt(over_dispertion) * sqrt(1 / (tot_ae_adm * mu * (1 - mu))),
+        upper = 1 / (1 + exp(-(logit_mu + z * logit_se))),
+        lower = 1 / (1 + exp(-(logit_mu - z * logit_se))),
+        label = label
+      )
+})
+  
+  
+unique_bins <- plot_data %>% 
+  arrange(denom) %>% 
+  pull(rate_bin) %>% 
+  unique()
+
+breaks <- plot_data %>% 
+  arrange(denom) %>% 
+  pull(denom) %>% 
+  unique()
+
+base_colors <- paletteer::paletteer_d("beyonce::X41")
+pal_func <- colorRampPalette(as.character(base_colors))
+pal <- pal_func(length(unique_bins))
+
+
+
+
+rate_breaks <- c(1/400, 1/200, 1/100, 1/75, 1/50)
+
+y_limit <- max(max(current_rate) * 1.2, 0.02)
+x_limit_extended <- x_max * 1.1
+
+
+p <- ggplot2::ggplot(plot_data, ggplot2::aes(x = tot_ae_adm, y = rate, col = rate)) +
+    # 2. Control Limits
+    ggplot2::geom_line(data = funnel_lines, ggplot2::aes(y = upper, group = label), 
+                       color = "black", linetype = "dashed", alpha = 0.4) +
+    
+    # 3. Clean Baseline & Label
+   ggplot2::geom_hline(yintercept = mu, color = "black", alpha = 0.5) +
+ggplot2::annotate(
+  "text", 
+  x = x_max, 
+  y = mu, 
+  label = paste0("National average\n(", rate_labeller(mu), ")"), 
+  hjust = -0.1, # Shift slightly right of the last data point
+  vjust = 1.25,
+  size = 3.5,
+  fontface = "italic"
+) +
+    ggiraph::geom_point_interactive(aes(tooltip = tooltip), size = 2.5, alpha = 0.6) +
+    ggplot2::labs(
+      title = "Delay-related mortality funnel plot",
+      subtitle = "Each dot represents a major (type-1) A&E department",
+      caption = "Dashed lines represent control limits, which define the range of expected statistical variation based on hospital volume.",
+      x = "Total type-1 A&E Admissions", 
+      y = "Risk rate of delay-related deaths per 1000 admission"
+    ) +
+  scale_y_continuous(limits = c(0, y_limit), labels = \(x) str_c(1000*x, " ‰")) +
+  scale_x_continuous(labels = scales::comma) +
+scale_colour_stepsn(
+  colors = as.character(base_colors),
+  breaks = rate_breaks, # Use your 1/400, 1/200, etc.
+  values = scales::rescale(rate_breaks), # Ensures colors align with actual values
+  labels = rate_labeller,
+  guide = guide_colorsteps(
+    even.steps = TRUE, # Makes the legend blocks equal width for readability
+    barwidth = unit(0.8, 'npc'),
+    title = "Mortality Risk (e.g., 1 in 100 admissions)"
+  )
+) +
+  ggplot2::coord_cartesian(xlim = c(x_min, x_limit_extended), ylim = c(0, y_limit), clip = "off") +
+    ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::theme(
+      legend.position = "bottom",
+      plot.margin = margin(5, 50, 5, 5),
+      panel.grid.minor = element_blank(),
+      plot.caption = element_text(hjust = 0, color = "gray30", size = 9)
+    );p
+
+
+
+girafe(
+  ggobj = p,
+  options = list(
+    # Keep the hovered item normal
+    opts_hover(css = "stroke-width:1.5px; stroke:white;"), 
+    # Fade everything else out (lower opacity)
+    opts_hover_inv(css = "opacity:0.2; transition: opacity 0.3s;"),
+    opts_tooltip(css = "background-color:white;color:black;padding:5px;border-radius:5px;font-family:sans-serif;"),
+    opts_toolbar(saveaspng = FALSE)
+  ),
+  width_svg = 9,
+  height_svg = 7
+)

@@ -2,17 +2,6 @@ source("03_estimate_impacts.R")
 
 cluster_shp <- sf::st_read("data/cluster/cluster.shp")
 
-# Helper to bin the data into "1 in X" categories
-round_denom <- function(val, round = 25) {
-  if (is.na(val) || val == 0) return("0")
-  
-  # Calculate denominator and round to nearest round
-  denom <- 1 / val
-  rounded_denom <- round(denom / round) * round
-  
-  return(rounded_denom)
-}
-
 # Process the data
 plot_data <- cluster_shp %>%
   left_join(cluster_impacts, by = join_by(cluster == cluster)) %>%
@@ -41,8 +30,6 @@ breaks <- plot_data %>%
 
 base_colors <- paletteer::paletteer_d("beyonce::X41")
 pal_func <- colorRampPalette(as.character(base_colors))
-
-
 pal <- pal_func(length(unique_bins))
 
 

@@ -31,11 +31,4 @@ ae_impacts <- local({
       mutate(across(c(excess_mort, excess_beds), \(x) x/tot_ae_adm, .names = "{.col}_per_adm"))
 })
 
-
-icb_impacts <- ae_impacts %>%
-  filter(period == max(period, na.rm = TRUE), org != "Total", icb_name != "") %>%
-  summarise(across(c(excess_mort, tot_ae_adm), sum), .by = c(period, icb_name, cluster))
-
-cluster_impacts <- ae_impacts %>%
-  filter(period == max(period, na.rm = TRUE), org != "Total", icb_name != "") %>%
-  summarise(across(c(excess_mort, tot_ae_adm), sum), .by = c(period, cluster))
+write_csv(ae_impacts, "data/ae_impacts.csv")

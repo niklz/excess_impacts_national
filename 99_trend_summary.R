@@ -3,7 +3,7 @@ library(feasts)
 library(fable)
 
 foo <- ae_impacts %>%
-  filter(org != "Total" == "Type 1 (Major)")
+  filter(org != "Total", ae_type == "Type 1 (Major)")
 
 
 ae_trends <- foo %>%
@@ -56,8 +56,8 @@ ae_diagnostics <- foo %>%
     # Capture the ultimate velocity of the key to tag historical rows
     final_trend_velocity = map_dbl(list(tail(trend, 3)), ~ lm(.x ~ seq_along(.x))$coefficients[2]),
     status_group = case_when(
-      final_trend_velocity > 0.5  ~ "Grower",
-      final_trend_velocity < -0.5 ~ "Decliner",
+      final_trend_velocity > 0.35  ~ "Grower",
+      final_trend_velocity < -0.35 ~ "Decliner",
       TRUE                  ~ "Stable"
     )
   ) %>%
@@ -68,7 +68,7 @@ ae_diagnostics <- foo %>%
 
 # Visualise the underlying trend lines of all declining keys
 ae_diagnostics %>%
-  filter(status_group == "Decliner") %>%
+  filter(status_group == "Stable") %>%
   ggplot(aes(x = yearmon, y = trend, color = org)) +
   geom_line(size = 1) +
   theme_minimal() +

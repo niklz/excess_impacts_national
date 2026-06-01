@@ -54,24 +54,26 @@ processed_data <- ae_impacts %>%
     Region = parent_org, 
     `Total admissions` = tot_ae_adm, 
     `Number of DTA > 4 hours` = dta_gt4, 
-    `Delay related deaths` = excess_mort
+    `Estimated delay related deaths` = excess_mort,
+    Trend = status_arrow
   ) %>%
   # Round values and format with commas right now
   mutate(
     `Total admissions` = round(`Total admissions`, 0),
     `Number of DTA > 4 hours` = round(`Number of DTA > 4 hours`, 0),
-    `Delay related deaths` = round(`Delay related deaths`, 0)
+    `Delay related deaths` = round(`Estimated delay related deaths`, 0)
   )
 
 # 2. Separate the "Total" row from the rest of the data
 total_row <- processed_data %>% filter(Trust == "Total")
-main_data  <- processed_data %>% filter(Trust != "Total") %>% arrange(desc(`Delay related deaths`))
+main_data  <- processed_data %>% filter(Trust != "Total") %>% arrange(desc(`Estimated delay related deaths`))
 
 # 3. Recombine them with "Total" strictly at the top
 final_df <- bind_rows(total_row, main_data)
 
 # 4. Custom formatter that skips the first row ("Total") for conditional styling
 # but applies comma formatting to ALL rows.
+
 comma_formatter_except_total <- function(color_code, is_bar = FALSE) {
   formatter("span", style = function(x) {
     # Create a vector of styles, defaulting to empty/normal
@@ -92,7 +94,7 @@ comma_formatter_except_total <- function(color_code, is_bar = FALSE) {
 # 5. Render the table
 formattable(
   final_df,
-  align = c("l", "l", "r", "r", "r"),
+  align = c("l", "l", "r", "r", "r", "r"),
   list(
     # Custom styling for the "Total" row to make it stand out at the top
     Trust = formatter("span", style = x ~ style(font.weight = ifelse(x == "Total", "bold", "normal"))),
@@ -110,7 +112,7 @@ formattable(
       x ~ comma(x, digits = 0)
     ),
     
-    `Delay related deaths` = formatter(
+    `Estimated delay related deaths` = formatter(
       "span",
       style = function(x) {
         style(
@@ -120,7 +122,8 @@ formattable(
         )
       },
       x ~ comma(x, digits = 0)
-    )
+    ),
+    Trend 
   )
 )
 
@@ -162,19 +165,20 @@ custom_bar_formatter <- function(color) {
 # -------------------------------------------------------------------------
 
 processed_data <- ae_impacts %>%
-  filter(period == max(period), ae_type == "Type 1 (Major)") %>%
+  filter(period == max(period)) %>%
   select(
     Trust = org, 
     Region = parent_org, 
     `Total admissions` = tot_ae_adm, 
     `Number of DTA > 4 hours` = dta_gt4, 
-    `Delay related deaths` = excess_mort
+    `Estimated delay related deaths` = excess_mort,
+    Trend = status_arrow
   ) %>%
   mutate(across(where(is.numeric), ~ round(.x, 0)))
 
 # Separate and recombine to force "Total" to the top row
 total_row <- processed_data %>% filter(Trust == "Total")
-main_data  <- processed_data %>% filter(Trust != "Total") %>% arrange(desc(`Delay related deaths`))
+main_data  <- processed_data %>% filter(Trust != "Total") %>% arrange(desc(`Estimated delay related deaths`))
 final_df   <- bind_rows(total_row, main_data)
 
 # -------------------------------------------------------------------------
@@ -193,7 +197,7 @@ formattable(
     `Number of DTA > 4 hours` = custom_bar_formatter("#cbd5e1"), 
     
     # Keep the dynamic text color logic for Deaths
-    `Delay related deaths` = formatter(
+    `Estimated delay related deaths` = formatter(
       "span",
       style = function(x) {
         style(
@@ -205,3 +209,164 @@ formattable(
     )
   )
 )
+
+
+
+
+library(formattable)
+library(dplyr)
+library(sparkline)
+
+# Enhanced Progress Bar Formatter
+custom_bar_formatter <- function(color, track_color = "#f1f5f9") {
+  formatter("span", 
+    style = function(x) {
+      styles <- rep("", length(x))
+      
+      # Calculate percentages for rows 2 onwards
+      max_val <- max(x[-1], na.rm = TRUE)
+      percentages <- round((x[-1] / max_val) * 100)
+      
+      # Apply a dual gradient: the progress color + a subtle track background color
+      styles[-1] <- sprintf(
+        "background: linear-gradient(90deg, %s %d%%, %s %d%%); 
+         display: inline-block; 
+         width: 100%%; 
+         text-align: center; /* Centers text neatly inside the bar */
+         color: #1e293b; /* Crisp dark grey text */
+         font-weight: 500;
+         border-radius: 4px; 
+         padding: 2px 4px;", 
+        color, percentages, track_color, percentages
+      )
+      
+      # Style for the "Total" row (Row 1) - Bold and no background bar
+      styles[1] <- "font-weight: bold; color: #0f172a;"
+      styles
+    },
+    x ~ comma(x, digits = 0)
+  )
+}
+
+# -------------------------------------------------------------------------
+# Data Preparation (Kept identical to your core logic)
+# -------------------------------------------------------------------------
+
+processed_data <- ae_impacts %>%
+  filter(period == max(period)) %>%
+  select(
+    Trust = org,
+    Region = parent_org,
+    `Total admissions` = tot_ae_adm,
+    `Number of DTA > 4 hours` = dta_gt4,
+    `Estimated delay related deaths` = excess_mort,
+    Trend = status_arrow
+  ) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 0)))
+
+total_row <- processed_data %>% filter(Trust == "Total")
+main_data  <- processed_data %>% filter(Trust != "Total") %>%
+arrange(desc(`Estimated delay related deaths`))
+
+final_df   <- bind_rows(total_row, main_data)
+
+# -------------------------------------------------------------------------
+# Render Enhanced Table
+# -------------------------------------------------------------------------
+formattable(
+  final_df,
+  align = c("l", "l", "r", "r", "r", "c"), # Added 'c' for Trend column
+  list(
+    # Bold entire "Total" row cells for text columns
+    Trust = formatter("span", style = x ~ style(font.weight = ifelse(x == "Total", "bold", "normal"))),
+    Region = formatter("span", style = function(x) {
+      style(
+        font.weight = ifelse(final_df$Trust == "Total", "bold", "normal"),
+        color = ifelse(final_df$Trust == "Total", "#475569", "#64748b") # Dim the region text slightly for hierarchy
+      )
+    }),
+    
+    # Clean Progress Bars with internal centering
+    `Total admissions`        = custom_bar_formatter("#cbd5e1"), 
+    `Number of DTA > 4 hours` = custom_bar_formatter("#cbd5e1"), 
+    
+    # Fully styled Deaths column (Total row bolded)
+    `Estimated delay related deaths` = formatter(
+      "span",
+      style = function(x) {
+        style(
+          color = c("#0f172a", ifelse(x[-1] > 0, "#991b1b", "#166534")),
+          font.weight = "bold"
+        )
+      },
+      x ~ comma(x, digits = 0)
+    ),
+    
+    # Color-coded Trends for immediate scannability
+    Trend = formatter(
+      "span",
+      style = x ~ style(
+        color = case_when(
+          grepl("Decline", x) ~ "#166534", # Green for declining deaths
+          grepl("Growth|Increase", x) ~ "#991b1b", # Red for rising issues
+          TRUE ~ "#475569" # Neutral grey for stable
+        ),
+        font.weight = ifelse(final_df$Trust == "Total", "bold", "normal")
+      )
+    )
+  )
+)
+
+
+
+
+final_df_with_spk <- final_df %>%
+  rowwise() %>% 
+  mutate(
+    # Create the HTML sparkline string from your numeric nested list
+    `Death Trend` = 
+      spk_chr(
+        unlist(data), # Extract the numeric array out of your list-column
+        type = "line", 
+        lineColor = "#991b1b",    # Dark Red line
+        fillColor = "#fee2e2",    # Light Red shaded area underneath
+        minSpotColor = "#166534", # Green dot on the lowest point
+        maxSpotColor = "#991b1b", # Red dot on the highest point
+        spotRadius = 2
+      )
+    
+  ) %>%
+  ungroup() %>%
+  select(-data, -Trend) # Drop the raw data list and old text trend column
+
+# -------------------------------------------------------------------------
+# 2. Render Table and Inject Dependencies
+# -------------------------------------------------------------------------
+
+tbl <- formattable(
+  final_df_with_spk,
+  # Update alignment to accommodate the new 7th column (Death Trend)
+  align = c("l", "l", "r", "r", "r", "c"), 
+  list(
+    # Formatting rules established previously
+    Trust = formatter("span", style = x ~ style(font.weight = ifelse(x == "Total", "bold", "normal"))),
+    Region = formatter("span", style = function(x) style(font.weight = ifelse(final_df_with_spk$Trust == "Total", "bold", "normal"), color = ifelse(final_df_with_spk$Trust == "Total", "#475569", "#64748b"))),
+    
+    `Total admissions`        = custom_bar_formatter("#cbd5e1"), 
+    `Number of DTA > 4 hours` = custom_bar_formatter("#cbd5e1"), 
+    
+    `Estimated delay related deaths` = formatter(
+      "span",
+      style = function(x) style(color = c("#0f172a", ifelse(x[-1] > 0, "#991b1b", "#166534")), font.weight = "bold"),
+      x ~ comma(x, digits = 0)
+    )
+    # Note: We do not need a formatter for `Death Trend` because spk_chr pre-baked the HTML!
+  )
+)
+
+# ⚠️ CRITICAL STEP: Cast to widget and append JavaScript instructions
+tbl_widget <- as.htmlwidget(tbl)
+tbl_widget$dependencies <- c(tbl_widget$dependencies, htmlwidgets:::widget_dependencies("sparkline", "sparkline"))
+
+# Call the widget to see the beautiful table
+tbl_widget

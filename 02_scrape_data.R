@@ -3,7 +3,7 @@ source("01_utils.R")
 
 
 ae_data_sum <- local({
-year_range <- 2020:2026
+year_range <- 2020:2027
 
 url_stem <- glue::glue("https://www.england.nhs.uk/statistics/statistical-work-areas/ae-waiting-times-and-activity/ae-attendances-and-emergency-admissions-20{(year_range[-length(year_range)] - 2000)}-{(year_range[-1] - 2000)}/")
 

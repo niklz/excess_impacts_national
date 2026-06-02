@@ -260,7 +260,8 @@ processed_data <- ae_impacts %>%
     `Total admissions` = tot_ae_adm,
     `Number of DTA > 4 hours` = dta_gt4,
     `Estimated delay related deaths` = excess_mort,
-    Trend = status_arrow
+    Trend = status_arrow,
+    `Trend velocity` = trend_velocity
   ) %>%
   mutate(across(where(is.numeric), ~ round(.x, 0)))
 
@@ -316,6 +317,22 @@ formattable(
     )
   )
 )
+
+
+
+
+formattable(
+  final_df %>% select(-`Region`, -`Total admissions`, -`Number of DTA > 4 hours`, -`Estimated delay related deaths`, -Trend) %>% arrange(desc(`Trend velocity`)),
+  align = c("l", "l"), # Added 'c' for Trend column
+  list(
+    # Bold entire "Total" row cells for text columns
+    Trust = formatter("span", style = x ~ style(font.weight = ifelse(x == "Total", "bold", "normal"))),    
+    # Clean Progress Bars with internal centering
+    `Trend velocity`        = custom_bar_formatter("#cbd5e1")
+  )
+)
+
+
 
 
 

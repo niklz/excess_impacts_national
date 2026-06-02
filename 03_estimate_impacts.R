@@ -114,7 +114,7 @@ ae_impacts <- local({
       status_arrow = case_when(
         # If an organization was dropped due to short history, trend_velocity_pct is NA
         is.na(trend_velocity_pct) ~ "⬦ Insufficient Data",
-        is_low_volume ~ "⬦ Low Baseline",
+        is_low_volume ~ "◆ Low Baseline",
         trend_velocity_pct > 1 ~ "▲ Growth",
         trend_velocity_pct < -1 ~ "▼ Decline",
         TRUE ~ "■ Stable"

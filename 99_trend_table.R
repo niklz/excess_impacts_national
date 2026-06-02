@@ -2,47 +2,6 @@ library(formattable)
 library(colorRampPalette)
 
 
-ae_impacts %>%
-  filter(period == max(period), ae_type == "Type 1 (Major)") %>%
-    arrange(desc(excess_mort)) %>%
-    select(Trust = org, Region = parent_org, `Total admissions` = tot_ae_adm, `Number of DTA > 4 hours` = dta_gt4, `Delay related deaths` = excess_mort) %>%
-  formattable()
-
-
-
-
-# Custom color palette for the heatmaps
-color_palette <- colorRampPalette(c("#ffffff", "#fecdd3", "#f43f5e")) # White to soft red
-
-ae_impacts %>%
-  filter(period == max(period), ae_type == "Type 1 (Major)") %>%
-  arrange(desc(excess_mort)) %>%
-  select(
-    Trust = org, 
-    Region = parent_org, 
-    `Total admissions` = tot_ae_adm, 
-    `Number of DTA > 4 hours` = dta_gt4, 
-    `Delay related deaths` = excess_mort
-  ) %>%
-  formattable(
-    align = c("l", "l", "r", "r", "r"), # Left-align text, Right-align numbers
-    list(
-      # 1. Format numbers with commas for readability
-      `Total admissions` = color_bar("#cbd5e1"), # Subtle grey progress bar
-      
-      # 2. Heatmap for long DTA waits (higher numbers = darker red)
-      `Number of DTA > 4 hours` = color_tile("white", "#fca5a5"), 
-      
-      # 3. Bold and color-code the most critical metric (Excess Deaths)
-      `Delay related deaths` = formatter(
-        "span",
-        style = x ~ style(
-          color = ifelse(x > 0, "#991b1b", "darkgreen"),
-          font.weight = "bold"
-        )
-      )
-    )
-  )
 
 
 
@@ -160,6 +119,39 @@ custom_bar_formatter <- function(color) {
   )
 }
 
+
+# Enhanced Progress Bar Formatter
+custom_bar_formatter <- function(color, track_color = "#f1f5f9") {
+  formatter("span", 
+    style = function(x) {
+      styles <- rep("", length(x))
+      
+      # Calculate percentages for rows 2 onwards
+      max_val <- max(x[-1], na.rm = TRUE)
+      percentages <- round((x[-1] / max_val) * 100)
+      
+      # Apply a dual gradient: the progress color + a subtle track background color
+      styles[-1] <- sprintf(
+        "background: linear-gradient(90deg, %s %d%%, %s %d%%); 
+         display: inline-block; 
+         width: 100%%; 
+         text-align: center; /* Centers text neatly inside the bar */
+         color: #1e293b; /* Crisp dark grey text */
+         font-weight: 500;
+         border-radius: 4px; 
+         padding: 2px 4px;", 
+        color, percentages, track_color, percentages
+      )
+      
+      # Style for the "Total" row (Row 1) - Bold and no background bar
+      styles[1] <- "font-weight: bold; color: #0f172a;"
+      styles
+    },
+    x ~ comma(x, digits = 0)
+  )
+}
+
+
 # -------------------------------------------------------------------------
 # Data Preparation
 # -------------------------------------------------------------------------
@@ -172,6 +164,7 @@ processed_data <- ae_impacts %>%
     `Total admissions` = tot_ae_adm, 
     `Number of DTA > 4 hours` = dta_gt4, 
     `Estimated delay related deaths` = excess_mort,
+    `Percent change` = trend_velocity_pct,
     Trend = status_arrow
   ) %>%
   mutate(across(where(is.numeric), ~ round(.x, 0)))
@@ -211,118 +204,10 @@ formattable(
 )
 
 
-
-
-library(formattable)
-library(dplyr)
-library(sparkline)
-
-# Enhanced Progress Bar Formatter
-custom_bar_formatter <- function(color, track_color = "#f1f5f9") {
-  formatter("span", 
-    style = function(x) {
-      styles <- rep("", length(x))
-      
-      # Calculate percentages for rows 2 onwards
-      max_val <- max(x[-1], na.rm = TRUE)
-      percentages <- round((x[-1] / max_val) * 100)
-      
-      # Apply a dual gradient: the progress color + a subtle track background color
-      styles[-1] <- sprintf(
-        "background: linear-gradient(90deg, %s %d%%, %s %d%%); 
-         display: inline-block; 
-         width: 100%%; 
-         text-align: center; /* Centers text neatly inside the bar */
-         color: #1e293b; /* Crisp dark grey text */
-         font-weight: 500;
-         border-radius: 4px; 
-         padding: 2px 4px;", 
-        color, percentages, track_color, percentages
-      )
-      
-      # Style for the "Total" row (Row 1) - Bold and no background bar
-      styles[1] <- "font-weight: bold; color: #0f172a;"
-      styles
-    },
-    x ~ comma(x, digits = 0)
-  )
-}
-
-# -------------------------------------------------------------------------
-# Data Preparation (Kept identical to your core logic)
-# -------------------------------------------------------------------------
-
-processed_data <- ae_impacts %>%
-  filter(period == max(period)) %>%
-  select(
-    Trust = org,
-    Region = parent_org,
-    `Total admissions` = tot_ae_adm,
-    `Number of DTA > 4 hours` = dta_gt4,
-    `Estimated delay related deaths` = excess_mort,
-    Trend = status_arrow,
-    `Trend velocity` = trend_velocity
-  ) %>%
-  mutate(across(where(is.numeric), ~ round(.x, 0)))
-
-total_row <- processed_data %>% filter(Trust == "Total")
-main_data  <- processed_data %>% filter(Trust != "Total") %>%
-arrange(desc(`Estimated delay related deaths`))
-
-final_df   <- bind_rows(total_row, main_data)
-
-# -------------------------------------------------------------------------
-# Render Enhanced Table
-# -------------------------------------------------------------------------
-formattable(
-  final_df,
-  align = c("l", "l", "r", "r", "r", "c"), # Added 'c' for Trend column
-  list(
-    # Bold entire "Total" row cells for text columns
-    Trust = formatter("span", style = x ~ style(font.weight = ifelse(x == "Total", "bold", "normal"))),
-    Region = formatter("span", style = function(x) {
-      style(
-        font.weight = ifelse(final_df$Trust == "Total", "bold", "normal"),
-        color = ifelse(final_df$Trust == "Total", "#475569", "#64748b") # Dim the region text slightly for hierarchy
-      )
-    }),
-    
-    # Clean Progress Bars with internal centering
-    `Total admissions`        = custom_bar_formatter("#cbd5e1"), 
-    `Number of DTA > 4 hours` = custom_bar_formatter("#cbd5e1"), 
-    
-    # Fully styled Deaths column (Total row bolded)
-    `Estimated delay related deaths` = formatter(
-      "span",
-      style = function(x) {
-        style(
-          color = c("#0f172a", ifelse(x[-1] > 0, "#991b1b", "#166534")),
-          font.weight = "bold"
-        )
-      },
-      x ~ comma(x, digits = 0)
-    ),
-    
-    # Color-coded Trends for immediate scannability
-    Trend = formatter(
-      "span",
-      style = x ~ style(
-        color = case_when(
-          grepl("Decline", x) ~ "#166534", # Green for declining deaths
-          grepl("Growth|Increase", x) ~ "#991b1b", # Red for rising issues
-          TRUE ~ "#475569" # Neutral grey for stable
-        ),
-        font.weight = ifelse(final_df$Trust == "Total", "bold", "normal")
-      )
-    )
-  )
-)
-
-
-
+top_growers <- final_df %>% filter(Trend == "▲ Growth") %>% select(-`Region`, -`Total admissions`, -`Number of DTA > 4 hours`, -`Estimated delay related deaths`, -Trend) %>% arrange(desc(`Percent change`)),
 
 formattable(
-  final_df %>% select(-`Region`, -`Total admissions`, -`Number of DTA > 4 hours`, -`Estimated delay related deaths`, -Trend) %>% arrange(desc(`Trend velocity`)),
+  
   align = c("l", "l"), # Added 'c' for Trend column
   list(
     # Bold entire "Total" row cells for text columns

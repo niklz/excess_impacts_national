@@ -1,7 +1,6 @@
 source("02_scrape_data.R")
 
 ae_impacts <- local({
-
   # We only compute impacts for type 1 AE deps
   ae_impacts_clean <- ae_data_sum %>%
     filter(ae_type == "Type 1 (Major)")
@@ -22,17 +21,22 @@ ae_impacts <- local({
       hours_per_period = lubridate::interval(
         period,
         lubridate::rollforward(period)
-      ) / dhours(1)
+      ) /
+        dhours(1)
     )
 
   ae_impacts_clean <- ae_impacts_clean %>%
-    mutate(dta_gt4 = dta_4_12 + dta_gt12) %>% 
+    mutate(dta_gt4 = dta_4_12 + dta_gt12) %>%
     left_join(hours_per_period, by = "period") %>%
     mutate(
       excess_mort = dta_gt4 / mort_nnh,
       excess_beds = (dta_gt4 * los_eff$estimate[1]) / hours_per_period
     ) %>%
-    mutate(across(c(excess_mort, excess_beds), \(x) x/tot_ae_adm, .names = "{.col}_per_adm"))
+    mutate(across(
+      c(excess_mort, excess_beds),
+      \(x) x / tot_ae_adm,
+      .names = "{.col}_per_adm"
+    ))
 
   # Base time-series tracking structure
   ae_ts_data <- ae_impacts_clean %>%
@@ -64,7 +68,7 @@ ae_impacts <- local({
         excess_mort ~ trend() + season(window = "periodic")
       )
     ) %>%
-    components() %>% 
+    components() %>%
     as_tibble() %>%
     group_by(org) %>%
     arrange(yearmon) %>%
@@ -74,15 +78,27 @@ ae_impacts <- local({
       trend_mom_delta = last(trend) - nth(trend, -2),
       last_3_months_trend = list(tail(trend, 3)),
       trend_velocity_pct = map_dbl(last_3_months_trend, function(x) {
-        if (any(is.na(x)) || all(x == 0)) return(0)
-        
+        if (any(is.na(x)) || all(x == 0)) {
+          return(0)
+        }
+
         slope <- lm(x ~ seq_along(x))$coefficients[2]
         mean_val <- mean(x, na.rm = TRUE)
-        
+
         if (is.na(slope) || is.na(mean_val) || abs(mean_val) < 1e-5) {
           return(0)
         }
-        return((slope / mean_val) * 100) 
+
+        # --- THE FIX: VOLATILITY GATEKEEPER ---
+        # If the baseline trend is tiny, avoid percentage division explosions.
+        # Instead, map a small absolute change to a sensible, capped percentage scale.
+        if (mean_val < 5) {
+          # e.g., an absolute slope of -0.2 becomes -2% instead of -2000%
+          return(slope * 10)
+        }
+
+        # Standard percentage calculation for robust baselines
+        return((slope / mean_val) * 100)
       })
     )
 
@@ -90,22 +106,24 @@ ae_impacts <- local({
   ae_trends_final <- waiter_history %>%
     left_join(ae_trends_calculated, by = "org") %>%
     mutate(
-      is_low_volume = map_lgl(last_3_months_waiters, ~ mean(.x, na.rm = TRUE) < 50),
-      
+      is_low_volume = map_lgl(
+        last_3_months_waiters,
+        ~ mean(.x, na.rm = TRUE) < 50
+      ),
+
       status_arrow = case_when(
         # If an organization was dropped due to short history, trend_velocity_pct is NA
         is.na(trend_velocity_pct) ~ "⬦ Insufficient Data",
-        is_low_volume             ~ "⬦ Low Baseline",
-        trend_velocity_pct > 1    ~ "▲ Growth",
-        trend_velocity_pct < -1   ~ "▼ Decline",
-        TRUE                      ~ "■ Stable"
+        is_low_volume ~ "⬦ Low Baseline",
+        trend_velocity_pct > 1 ~ "▲ Growth",
+        trend_velocity_pct < -1 ~ "▼ Decline",
+        TRUE ~ "■ Stable"
       )
     ) %>%
     select(org, trend_velocity_pct, status_arrow)
 
   # Map back to the full structural history cleanly
   left_join(ae_impacts_clean, ae_trends_final, by = "org")
-  
 })
 
 write_csv(ae_impacts, "data/ae_impacts.csv")

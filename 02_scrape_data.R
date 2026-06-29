@@ -292,7 +292,8 @@ org_recodes <- c(
   "FAVERSHAM MEDICAL PRACTICE MIU" = "Faversham Medical Practice MIU",
   "ROYAL SURREY NHS FOUNDATION TRUST" = "Royal Surrey NHS Foundation Trust",
   "PORTSMOUTH HOSPITALS UNIVERSITY NHS TRUST" = "Portsmouth Hospitals University NHS Trust",
-  "NEMS CBS (UTC)" = "NEMS CBS (UTC)"
+  "NEMS CBS (UTC)" = "NEMS CBS (UTC)",
+  "NORTH CHESHIRE AND MERSEY NHS FOUNDATION TRUST" = "North Cheshire and Mersey NHS Foundation Trust"
 )
   
 icb_recodes <- icb_recodes <- c(

@@ -90,67 +90,83 @@ formattable(
 
 
 
-#' Create a custom progress bar that ignores the "Total" row (Row 1)
-#' @param color The hex code color for the progress bar
-custom_bar_formatter <- function(color) {
-  formatter("span", 
-    style = function(x) {
-      # Initialize an empty style vector for all rows
-      styles <- rep("", length(x))
+# #' Create a custom progress bar that ignores the "Total" row (Row 1)
+# #' @param color The hex code color for the progress bar
+# custom_bar_formatter <- function(color) {
+#   formatter("span", 
+#     style = function(x) {
+#       # Initialize an empty style vector for all rows
+#       styles <- rep("", length(x))
       
-      # Calculate percentages for rows 2 onwards (ignoring the Total row)
-      # This stops the massive Total number from shrinking all other bars to 0%
-      max_val <- max(x[-1], na.rm = TRUE)
-      percentages <- round((x[-1] / max_val) * 100)
+#       # Calculate percentages for rows 2 onwards (ignoring the Total row)
+#       # This stops the massive Total number from shrinking all other bars to 0%
+#       max_val <- max(x[-1], na.rm = TRUE)
+#       percentages <- round((x[-1] / max_val) * 100)
       
-      # Apply the bar styling ONLY to rows 2 to N
-      styles[-1] <- sprintf(
-        "background: linear-gradient(90deg, %s %d%%, transparent %d%%); 
-         display: inline-block; 
-         width: 100%%; 
-         border-radius: 4px; 
-         padding-right: 4px;", 
-        color, percentages, percentages
-      )
-      styles
-    },
-    # Apply comma formatting and 0 decimal rounding to ALL rows (including Total)
-    x ~ comma(x, digits = 0)
-  )
-}
+#       # Apply the bar styling ONLY to rows 2 to N
+#       styles[-1] <- sprintf(
+#         "background: linear-gradient(90deg, %s %d%%, transparent %d%%); 
+#          display: inline-block; 
+#          width: 100%%; 
+#          border-radius: 4px; 
+#          padding-right: 4px;", 
+#         color, percentages, percentages
+#       )
+#       styles
+#     },
+#     # Apply comma formatting and 0 decimal rounding to ALL rows (including Total)
+#     x ~ comma(x, digits = 0)
+#   )
+# }
 
 
-# Enhanced Progress Bar Formatter
-custom_bar_formatter <- function(color, track_color = "#f1f5f9") {
+#' Create a dual-gradient progress bar with an optional flag for a "Total" row at Row 1
+#' @param color The hex code color for the active progress bar
+#' @param track_color The hex code color for the unfilled part of the bar
+#' @param has_total_row Logical. If TRUE, treats row 1 as a bold, un-barized summary total.
+custom_bar_formatter <- function(color, track_color = "#f1f5f9", has_total_row = FALSE) {
   formatter("span", 
     style = function(x) {
       styles <- rep("", length(x))
       
-      # Calculate percentages for rows 2 onwards
-      max_val <- max(x[-1], na.rm = TRUE)
-      percentages <- round((x[-1] / max_val) * 100)
+      if (has_total_row) {
+        # 1. Handle table WITH a total row (Skip row 1)
+        max_val <- max(x[-1], na.rm = TRUE)
+        if (is.na(max_val) || max_val == 0) max_val <- 1 # Protect against division by zero
+        
+        percentages <- round((x[-1] / max_val) * 100)
+        idx_to_paint <- seq_along(x)[-1]
+        
+        # Style for the "Total" row (Row 1) - Bold and no background bar
+        styles[1] <- "font-weight: bold; color: #0f172a;"
+        
+      } else {
+        # 2. Handle standard tables (Rankings / Leaderboards - Paint all rows)
+        max_val <- max(x, na.rm = TRUE)
+        if (is.na(max_val) || max_val == 0) max_val <- 1
+        
+        percentages <- round((x / max_val) * 100)
+        idx_to_paint <- seq_along(x)
+      }
       
-      # Apply a dual gradient: the progress color + a subtle track background color
-      styles[-1] <- sprintf(
+      # Apply the dual gradient styling to the target rows
+      styles[idx_to_paint] <- sprintf(
         "background: linear-gradient(90deg, %s %d%%, %s %d%%); 
          display: inline-block; 
          width: 100%%; 
-         text-align: center; /* Centers text neatly inside the bar */
-         color: #1e293b; /* Crisp dark grey text */
+         text-align: center; 
+         color: #1e293b; 
          font-weight: 500;
          border-radius: 4px; 
          padding: 2px 4px;", 
         color, percentages, track_color, percentages
       )
       
-      # Style for the "Total" row (Row 1) - Bold and no background bar
-      styles[1] <- "font-weight: bold; color: #0f172a;"
       styles
     },
     x ~ comma(x, digits = 0)
   )
 }
-
 
 # -------------------------------------------------------------------------
 # Data Preparation
@@ -204,16 +220,21 @@ formattable(
 )
 
 
-top_growers <- final_df %>% filter(Trend == "▲ Growth") %>% select(-`Region`, -`Total admissions`, -`Number of DTA > 4 hours`, -`Estimated delay related deaths`, -Trend) %>% arrange(desc(`Percent change`)),
+top_growers <- final_df %>% 
+  filter(Trend == "▲ Growth") %>% 
+  select(-Region, -`Total admissions`, -`Number of DTA > 4 hours`, -`Estimated delay related deaths`, -Trend) %>%
+  arrange(desc(`Percent change`))
 
+# Render the formattable table safely
 formattable(
-  
-  align = c("l", "l"), # Added 'c' for Trend column
+  top_growers, # 1. First argument must be the data frame explicitly
+  align = rep("l", ncol(top_growers)), # Dynamically matches alignment to your column count
   list(
     # Bold entire "Total" row cells for text columns
     Trust = formatter("span", style = x ~ style(font.weight = ifelse(x == "Total", "bold", "normal"))),    
+    
     # Clean Progress Bars with internal centering
-    `Trend velocity`        = custom_bar_formatter("#cbd5e1")
+    `Percent change` = custom_bar_formatter("#cbd5e1")
   )
 )
 
@@ -272,3 +293,112 @@ tbl_widget$dependencies <- c(tbl_widget$dependencies, htmlwidgets:::widget_depen
 
 # Call the widget to see the beautiful table
 tbl_widget
+
+
+library(reactable)
+library(shiny)
+
+
+display_df <- select(processed_data, -`Percent change`)
+  
+  # Find column maximums for the progress bar scaling (ignoring Total row)
+  valid_rows <- display_df %>% filter(Trust != "Total")
+  max_admissions <- max(valid_rows$`Total admissions`, na.rm = TRUE)
+  max_dta <- max(valid_rows$`Number of DTA > 4 hours`, na.rm = TRUE)
+  
+  reactable(
+    display_df,
+    pagination = FALSE,      # Show all rows (like pageLength = -1)
+    filterable = TRUE,      # Top filters
+    searchable = FALSE,
+    highlight = TRUE,
+    defaultColDef = colDef(align = "center"), # Center everything by default
+    
+    # ROW STYLING: Bold the total row perfectly
+    rowStyle = function(index) {
+      if (display_df$Trust[index] == "Total") {
+        list(fontWeight = "bold", background = "#f8fafc")
+      }
+    },
+    
+    columns = list(
+      # 1. TRUST COLUMN (Left-aligned)
+      Trust = colDef(
+        name = "Trust",
+        align = "left",
+        width = 300
+      ),
+      
+      # 2. TOTAL ADMISSIONS (Custom Progress Bar)
+      `Total admissions` = colDef(
+        name = "Total admissions",
+        width = 200,
+        cell = function(value, index) {
+          # Skip the bar for the Total row
+          if (display_df$Trust[index] == "Total") return(comma(value, digits = 0))
+          
+          # Calculate fluid percentage
+          pct <- min(round((abs(value) / max_admissions) * 100), 100)
+          
+          # Create the exact same visual bar aesthetic
+          div(
+            style = list(
+              background = sprintf("linear-gradient(90deg, #cbd5e1 %d%%, #f1f5f9 %d%%)", pct, pct),
+              color = "#1e293b", fontWeight = 500, borderRadius = "4px", padding = "2px 4px", width = "100%"
+            ),
+            comma(value, digits = 0)
+          )
+        }
+      ),
+      
+      # 3. NUMBER OF DTA > 4 HOURS (Custom Progress Bar)
+      `Number of DTA > 4 hours` = colDef(
+        name = "Number of DTA > 4 hours",
+        width = 200,
+        cell = function(value, index) {
+          if (display_df$Trust[index] == "Total") return(comma(value, digits = 0))
+          pct <- min(round((abs(value) / max_dta) * 100), 100)
+          div(
+            style = list(
+              background = sprintf("linear-gradient(90deg, #cbd5e1 %d%%, #f1f5f9 %d%%)", pct, pct),
+              color = "#1e293b", fontWeight = 500, borderRadius = "4px", padding = "2px 4px", width = "100%"
+            ),
+            comma(value, digits = 0)
+          )
+        }
+      ),
+      
+      # 4. ESTIMATED DRD (Conditional Red/Green Text)
+      `Estimated DRD` = colDef(
+        name = "Estimated DRD",
+        width = 130,
+        cell = function(value, index) {
+          is_total <- display_df$Trust[index] == "Total"
+          text_color <- if (is_total) "#0f172a" else if (value > 0) "#991b1b" else "#166534"
+          
+          span(
+            style = list(color = text_color, fontWeight = "bold"),
+            comma(value, digits = 0)
+          )
+        }
+      ),
+      
+      # 5. TREND COLUMN (Conditional Text + Icons)
+      Trend = colDef(
+        name = "Trend",
+        width = 180,
+        cell = function(value, index) {
+          is_total <- display_df$Trust[index] == "Total"
+          text_color <- case_when(
+            grepl("Decline", value) ~ "#166534",
+            grepl("Growth|Increase", value) ~ "#991b1b",
+            TRUE ~ "#475569"
+          )
+          span(
+            style = list(color = text_color, fontWeight = if(is_total) "bold" else "normal"),
+            value
+          )
+        }
+      )
+    )
+  )

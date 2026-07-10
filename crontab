@@ -1,0 +1,2 @@
+## Run every Thursday at 1 pm
+0 13 * * 4 /usr/local/bin/Rscript /root/code_data.R > /proc/1/fd/1 2>/proc/1/fd/2

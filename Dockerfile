@@ -1,7 +1,7 @@
 FROM rocker/tidyverse
 
 RUN apt update && apt -y install cron
-RUN mkdir /root/utils
+RUN mkdir /root/data
 
 # Install system dependencies for openssl and textshaping
 RUN apt-get update && apt-get install -y \
@@ -31,7 +31,7 @@ WORKDIR /root
 
 
 # Copy the scripts
-COPY utils/ utils/
+COPY data/ data/
 COPY 00_libraries.R 00_libraries.R
 COPY 01_utils.R 01_utils.R
 COPY 02_scrape_data.R 02_scrape_data.R

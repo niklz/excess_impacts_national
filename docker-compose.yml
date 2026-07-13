@@ -1,12 +1,11 @@
 version: '3.7'
 services:
-  forecast:
+  estimate:
     cap_add:
       - SYS_RESOURCE
     oom_score_adj: -1000
     build:
-      context: .           
-      dockerfile: Dockerfile-icb 
+      context: .            
     restart: always
     environment:
         - DB_HOST
@@ -16,4 +15,3 @@ services:
     volumes:
       - /samba/nowcast-data/dpp/data:/root/data
       - /home/rshiny:/root/sql
-    image: dps_forecast_v1

@@ -2,6 +2,7 @@
 # R/RStudio Junk
 # ==========================================
 .Rhistory
+.Renviron
 .RData
 .Ruserdata
 .Rproj.user/

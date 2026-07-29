@@ -27,9 +27,9 @@ ae_data <- map(urls_csv, \(x, y){
   mutate(icb_name = str_trim(icb_name))
   
   icb_cluster_lkup <- read_csv("data/icb_cluster.csv") 
-  
 
-  ae_data %>%
+  
+    ae_data %>%
   janitor::clean_names() %>%
   pivot_longer(
     cols = c(emergency_admissions_via_a_e_type_1, 
@@ -42,7 +42,7 @@ ae_data <- map(urls_csv, \(x, y){
     str_detect(ae_type, "type_1") ~ "Type 1 (Major)",
     str_detect(ae_type, "type_2") ~ "Type 2 (Specialist)",
     TRUE ~ "Type 3 (Minor/Other)"
-  ))  %>%
+  ))  %>% 
   select(
     period = period,
     parent_org = parent_org,
@@ -52,14 +52,14 @@ ae_data <- map(urls_csv, \(x, y){
     tot_ae_adm = admissions,
     dta_4_12 = patients_who_have_waited_4_12_hs_from_dta_to_admission,
     dta_gt12 = patients_who_have_waited_12_hrs_from_dta_to_admission
-  ) %>%
+  ) %>% 
   mutate(
     period = str_to_lower(period),
     across(matches("org", ignore.case = TRUE), str_to_upper),
-    period = my(str_remove_all(period, regex("MSitAE-", ignore_case = TRUE))),
+    period = my(str_remove_all(period, regex("MSitAE-", ignore_case = TRUE)))#,
     # Since DTA waits usually only occur in Type 1, we ensure they aren't double-counted
     # or misaligned if you join by ae_type later.
-    tot_ae_adm = pmax(tot_ae_adm, dta_4_12 + dta_gt12)
+    # tot_ae_adm = pmax(tot_ae_adm, dta_4_12 + dta_gt12)
   ) %>%
   left_join(icb_lkup, by = "org_code") %>%
   left_join(mutate(icb_cluster_lkup, icb = str_to_upper(icb)), by = join_by(icb_name == icb)) %>%

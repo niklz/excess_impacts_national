@@ -7,9 +7,18 @@ ae_impacts <- local({
   volatility_threshold <- 0.25      # Max allowed IQR-to-Median ratio (50% dispersion)
   # ------------------
   
-  # We only compute impacts for type 1 AE deps
+  # We only compute impacts for type 1 AE deps, however delays are reported for
+  # types 1, 2 & 3, so we must deduct any admissions from types 2 & 3 from the
+  # total delayed
+  
   ae_impacts_clean <- ae_data_sum %>%
-    filter(ae_type == "Type 1 (Major)")
+    # compute total delayed > 4 hours
+    mutate(dta_gt4 = dta_4_12 + dta_gt12) %>%
+    # subtract any admissions from types 2 & 3
+    mutate(ae_adm_typ23 = sum(tot_ae_adm[ae_type %in% c("Type 2 (Specialist)", "Type 3 (Minor/Other)")], na.rm = TRUE), .by = c(org, period)) %>%
+    mutate(dta_gt4 = pmax(0, dta_gt4 - ae_adm_typ23), .by = c(org, period)) %>%
+    filter(ae_type == "Type 1 (Major)") %>%
+    select(-ae_adm_typ23)
   
   # effect sizes (from 2026 paper)
   mort_nnh <- 68.63375
@@ -32,7 +41,6 @@ ae_impacts <- local({
     )
   
   ae_impacts_clean <- ae_impacts_clean %>%
-    mutate(dta_gt4 = dta_4_12 + dta_gt12) %>%
     left_join(hours_per_period, by = "period") %>%
     mutate(
       excess_mort = dta_gt4 / mort_nnh,
